@@ -25,6 +25,14 @@ export class MediaService {
   ) {}
 
   async deleteMedia(org: string, id: string) {
+    const media = await this._mediaRepository.getMediaById(id);
+    if (media?.path) {
+      try {
+        await this.storage.removeFile(media.path);
+      } catch (e) {
+        console.error('Error removing file from storage:', e);
+      }
+    }
     return this._mediaRepository.deleteMedia(org, id);
   }
 
