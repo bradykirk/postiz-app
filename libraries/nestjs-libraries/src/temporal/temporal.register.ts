@@ -56,16 +56,17 @@ export class TemporalRegister implements OnModuleInit {
         this.logger.log('Temporal search attributes registered successfully');
         return;
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         if (attempt < TemporalRegister.MAX_RETRIES) {
           this.logger.warn(
-            `Failed to register Temporal search attributes (attempt ${attempt}/${TemporalRegister.MAX_RETRIES}): ${error.message}. Retrying in ${TemporalRegister.RETRY_DELAY_MS / 1000}s...`,
+            `Failed to register Temporal search attributes (attempt ${attempt}/${TemporalRegister.MAX_RETRIES}): ${message}. Retrying in ${TemporalRegister.RETRY_DELAY_MS / 1000}s...`,
           );
           await new Promise((resolve) =>
             setTimeout(resolve, TemporalRegister.RETRY_DELAY_MS),
           );
         } else {
           this.logger.error(
-            `Failed to register Temporal search attributes after ${TemporalRegister.MAX_RETRIES} attempts: ${error.message}. The app will continue without custom search attributes.`,
+            `Failed to register Temporal search attributes after ${TemporalRegister.MAX_RETRIES} attempts: ${message}. The app will continue without custom search attributes.`,
           );
         }
       }
