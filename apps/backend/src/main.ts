@@ -20,62 +20,66 @@ import { ConfigurationChecker } from '@gitroom/helpers/configuration/configurati
 import { startMcp } from '@gitroom/nestjs-libraries/chat/start.mcp';
 
 async function start() {
-  const app = await NestFactory.create(AppModule, {
-    rawBody: true,
-    cors: {
-      ...(!process.env.NOT_SECURED ? { credentials: true } : {}),
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'x-copilotkit-runtime-client-gql-version',
-        ...(process.env.NOT_SECURED
-          ? ['auth', 'showorg', 'impersonate']
-          : []),
-      ],
-      exposedHeaders: [
-        'reload',
-        'onboarding',
-        'activate',
-        'x-copilotkit-runtime-client-gql-version',
-        ...(process.env.NOT_SECURED ? ['auth', 'showorg', 'impersonate'] : []),
-      ],
-      origin: [
-        process.env.FRONTEND_URL,
-        'http://localhost:6274',
-        ...(process.env.MAIN_URL ? [process.env.MAIN_URL] : []),
-      ],
-    },
-  });
-
-  await startMcp(app);
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      transform: true,
-    })
-  );
-
-  app.use(['/copilot/*', '/posts'], (req: any, res: any, next: any) => {
-    json({ limit: '50mb' })(req, res, next);
-  });
-
-  app.use(cookieParser());
-  app.use(compression());
-  app.useGlobalFilters(new SubscriptionExceptionFilter());
-  app.useGlobalFilters(new HttpExceptionFilter());
-
-  loadSwagger(app);
-
-  const port = process.env.PORT || 3000;
-
   try {
+    const app = await NestFactory.create(AppModule, {
+      rawBody: true,
+      cors: {
+        ...(!process.env.NOT_SECURED ? { credentials: true } : {}),
+        allowedHeaders: [
+          'Content-Type',
+          'Authorization',
+          'x-copilotkit-runtime-client-gql-version',
+          ...(process.env.NOT_SECURED
+            ? ['auth', 'showorg', 'impersonate']
+            : []),
+        ],
+        exposedHeaders: [
+          'reload',
+          'onboarding',
+          'activate',
+          'x-copilotkit-runtime-client-gql-version',
+          ...(process.env.NOT_SECURED ? ['auth', 'showorg', 'impersonate'] : []),
+        ],
+        origin: [
+          process.env.FRONTEND_URL,
+          'http://localhost:6274',
+          ...(process.env.MAIN_URL ? [process.env.MAIN_URL] : []),
+        ],
+      },
+    });
+
+    try {
+      await startMcp(app);
+    } catch (e) {
+      Logger.warn('MCP initialization failed - chat/agent features will be unavailable', e);
+    }
+
+    app.useGlobalPipes(
+      new ValidationPipe({
+        transform: true,
+      })
+    );
+
+    app.use(['/copilot/*', '/posts'], (req: any, res: any, next: any) => {
+      json({ limit: '50mb' })(req, res, next);
+    });
+
+    app.use(cookieParser());
+    app.use(compression());
+    app.useGlobalFilters(new SubscriptionExceptionFilter());
+    app.useGlobalFilters(new HttpExceptionFilter());
+
+    loadSwagger(app);
+
+    const port = process.env.PORT || 3000;
     await app.listen(port);
 
     checkConfiguration(); // Do this last, so that users will see obvious issues at the end of the startup log without having to scroll up.
 
     Logger.log(`🚀 Backend is running on: http://localhost:${port}`);
   } catch (e) {
-    Logger.error(`Backend failed to start on port ${port}`, e);
+    Logger.error('Backend failed to start', e);
+    process.exit(1);
   }
 }
 
