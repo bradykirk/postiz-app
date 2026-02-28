@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - self-hosted
+      - tiktok-api
 
 jobs:
   build-and-push:
