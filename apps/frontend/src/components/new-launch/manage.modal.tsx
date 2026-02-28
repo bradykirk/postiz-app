@@ -427,6 +427,21 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
               ? t('added_successfully', 'Added successfully')
               : t('updated_successfully', 'Updated successfully')
           );
+
+          // Req 5d: TikTok processing time notification
+          const hasTikTok = checkAllValid.some(
+            (p: any) => p.integration?.identifier === 'tiktok'
+          );
+          if (hasTikTok && type !== 'draft') {
+            setTimeout(() => {
+              toaster.show(
+                t(
+                  'tiktok_processing_notification',
+                  'Your content has been submitted to TikTok. It may take a few minutes to process and appear on your profile.'
+                )
+              );
+            }, 500);
+          }
         }
         if (customClose) {
           setTimeout(() => {

@@ -38,5 +38,6 @@ jobs:
             --no-cache \
             --provenance=false --sbom=false \
             --tag ghcr.io/bradykirk/postiz-app:latest \
+            --tag ghcr.io/bradykirk/postiz-app:tiktok \
             --tag ghcr.io/bradykirk/postiz-app:sha-${SHORT_SHA} \
             --push .

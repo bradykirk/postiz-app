@@ -361,10 +361,8 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async maxVideoLength(accessToken: string) {
-    const {
-      data: { max_video_post_duration_sec },
-    } = await (
+  async getCreatorInfo(accessToken: string) {
+    const response = await (
       await fetch(
         'https://open.tiktokapis.com/v2/post/publish/creator_info/query/',
         {
@@ -377,8 +375,41 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       )
     ).json();
 
+    if (response.error) {
+      const errorCode = response.error.code;
+      if (
+        errorCode === 'spam_risk_too_many_posts' ||
+        errorCode === 'spam_risk_too_many_pending_share' ||
+        errorCode === 'spam_risk_user_banned_from_posting'
+      ) {
+        return {
+          canPost: false,
+          reason:
+            this.handleErrors(JSON.stringify(response))?.value ||
+            'You have reached your posting limit. Please try again later.',
+        };
+      }
+    }
+
+    const { data } = response;
+
     return {
-      maxDurationSeconds: max_video_post_duration_sec,
+      canPost: true,
+      creatorNickname: data.creator_nickname,
+      creatorAvatarUrl: data.creator_avatar_url,
+      privacyLevelOptions: data.privacy_level_options,
+      commentDisabled: data.comment_disabled,
+      duetDisabled: data.duet_disabled,
+      stitchDisabled: data.stitch_disabled,
+      maxVideoDurationSec: data.max_video_post_duration_sec,
+    };
+  }
+
+  async maxVideoLength(accessToken: string) {
+    const info = await this.getCreatorInfo(accessToken);
+    return {
+      maxDurationSeconds:
+        info.canPost ? info.maxVideoDurationSec : undefined,
     };
   }
 

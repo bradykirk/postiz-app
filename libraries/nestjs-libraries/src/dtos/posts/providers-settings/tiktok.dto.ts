@@ -45,4 +45,7 @@ export class TikTokDto {
   @IsIn(['DIRECT_POST', 'UPLOAD'])
   @IsString()
   content_posting_method: 'DIRECT_POST' | 'UPLOAD';
+
+  @IsBoolean()
+  consent: boolean;
 }
