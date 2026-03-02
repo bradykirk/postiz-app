@@ -40,6 +40,9 @@ export class TikTokDto {
   video_made_with_ai: boolean;
 
   @IsBoolean()
+  disclose: boolean;
+
+  @IsBoolean()
   brand_organic_toggle: boolean;
 
   @IsIn(['DIRECT_POST', 'UPLOAD'])

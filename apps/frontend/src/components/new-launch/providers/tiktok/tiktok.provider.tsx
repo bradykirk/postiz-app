@@ -68,8 +68,12 @@ const TikTokSettings: FC<{
         _creatorInfoRef = info;
       })
       .catch(() => {
-        setCreatorInfo({ canPost: true });
-        _creatorInfoRef = { canPost: true };
+        const errorInfo: CreatorInfo = {
+          canPost: false,
+          reason: 'Failed to load TikTok creator settings. Please reconnect your TikTok account or try again later.',
+        };
+        setCreatorInfo(errorInfo);
+        _creatorInfoRef = errorInfo;
       })
       .finally(() => setLoading(false));
   }, []);
@@ -207,7 +211,7 @@ const TikTokSettings: FC<{
       <Select
         label={t('label_content_posting_method', 'Content posting method')}
         {...register('content_posting_method', {
-          value: 'DIRECT_POST',
+          value: 'UPLOAD',
         })}
       >
         <option value="">{t('select', 'Select')}</option>

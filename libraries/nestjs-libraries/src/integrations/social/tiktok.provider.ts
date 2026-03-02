@@ -389,9 +389,16 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
             'You have reached your posting limit. Please try again later.',
         };
       }
+      throw new Error(
+        this.handleErrors(JSON.stringify(response))?.value ||
+          `TikTok API error: ${errorCode || 'unknown'}`
+      );
     }
 
-    const { data } = response;
+    const data = response?.data;
+    if (!data) {
+      throw new Error('TikTok API returned no creator data');
+    }
 
     return {
       canPost: true,
