@@ -55,7 +55,6 @@ const TwitchSettings: FC = () => {
     <div className="flex flex-col">
       <Select
         label="Message Type"
-        disableForm
         {...register('messageType', {
           value: 'message',
         })}
@@ -69,7 +68,6 @@ const TwitchSettings: FC = () => {
       {messageType === 'announcement' && (
         <Select
           label="Announcement Color"
-          disableForm
           {...register('announcementColor', {
             value: 'primary',
           })}

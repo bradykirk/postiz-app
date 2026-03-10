@@ -87,7 +87,6 @@ const TikTokSettings: FC<{
       <Select
         label={t('label_who_can_see_this_video', 'Who can see this video?')}
         disabled={isUploadMode}
-        disableForm
         {...register('privacy_level', {
           value: 'PUBLIC_TO_EVERYONE',
         })}
@@ -108,9 +107,8 @@ const TikTokSettings: FC<{
       </div>
       <Select
         label={t('label_content_posting_method', 'Content posting method')}
-        disableForm
         {...register('content_posting_method', {
-          value: 'UPLOAD',
+          value: 'DIRECT_POST',
         })}
       >
         <option value="">{t('select', 'Select')}</option>
@@ -123,7 +121,6 @@ const TikTokSettings: FC<{
       {isUploadMode && <div className="-mt-[23px] mb-[23px] text-red-600">After posting you fill find a notification inside your Inbox about your post (not content studio)</div>}
       <Select
         label={t('label_auto_add_music', 'Auto add music')}
-        disableForm
         {...register('autoAddMusic', {
           value: 'no',
         })}

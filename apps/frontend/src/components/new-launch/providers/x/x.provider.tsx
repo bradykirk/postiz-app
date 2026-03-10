@@ -47,7 +47,6 @@ const SettingsComponent = () => {
         )}
         className="mb-5"
         hideErrors={true}
-        disableForm
         {...register('who_can_reply_post', {
           value: 'everyone',
         })}

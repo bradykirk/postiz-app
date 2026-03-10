@@ -44,7 +44,6 @@ const YoutubeSettings: FC = () => {
       <Input label="Title" {...register('title')} maxLength={100} />
       <Select
         label="Type"
-        disableForm
         {...register('type', {
           value: 'public',
         })}
@@ -57,7 +56,6 @@ const YoutubeSettings: FC = () => {
       </Select>
       <Select
         label="Made for kids"
-        disableForm
         {...register('selfDeclaredMadeForKids', {
           value: 'no',
         })}

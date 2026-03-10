@@ -70,7 +70,6 @@ const GmbSettings: FC = () => {
     <div className="flex flex-col gap-[10px]">
       <Select
         label="Post Type"
-        disableForm
         {...register('topicType', {
           value: 'STANDARD',
         })}
@@ -84,7 +83,6 @@ const GmbSettings: FC = () => {
 
       <Select
         label="Call to Action"
-        disableForm
         {...register('callToActionType', {
           value: 'NONE',
         })}
