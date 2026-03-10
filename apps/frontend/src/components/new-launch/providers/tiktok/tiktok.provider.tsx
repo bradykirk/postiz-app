@@ -467,15 +467,17 @@ export default withProvider({
       }
     }
 
-    // Req 3a: Disclosure on but no selection
+    // Req 3a: Disclosure on but no selection (only relevant for DIRECT_POST)
     const typedSettings = settings as any;
-    if (typedSettings.disclose && !typedSettings.brand_organic_toggle && !typedSettings.brand_content_toggle) {
-      return 'You need to indicate if your content promotes yourself, a third party, or both.';
-    }
+    if (typedSettings.content_posting_method !== 'UPLOAD') {
+      if (typedSettings.disclose && !typedSettings.brand_organic_toggle && !typedSettings.brand_content_toggle) {
+        return 'You need to indicate if your content promotes yourself, a third party, or both.';
+      }
 
-    // Req 3b: Branded content can't be private
-    if (typedSettings.brand_content_toggle && typedSettings.privacy_level === 'SELF_ONLY') {
-      return 'Branded content visibility cannot be set to private.';
+      // Req 3b: Branded content can't be private
+      if (typedSettings.brand_content_toggle && typedSettings.privacy_level === 'SELF_ONLY') {
+        return 'Branded content visibility cannot be set to private.';
+      }
     }
 
     // Req 5c: Consent required
