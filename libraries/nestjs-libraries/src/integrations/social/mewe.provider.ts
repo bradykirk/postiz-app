@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { MeweDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/mewe.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
+import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 
 export class MeweProvider extends SocialAbstract implements SocialProvider {
   identifier = 'mewe';
@@ -244,7 +245,7 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
 
     // Upload photos if present (exclude videos)
     const imageMedia =
-      firstPost.media?.filter((m) => !m.path || m.path.indexOf('mp4') === -1) ||
+      firstPost.media?.filter((m) => !m.path || !hasExtension(m.path, 'mp4')) ||
       [];
 
     const uploadedPhotoIds: string[] = [];
@@ -272,7 +273,6 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
 
     if (!postResponse.ok) {
       const errorText = await postResponse.text();
-      console.log(errorText);
       const handleError = this.handleErrors(errorText);
       if (handleError) {
         throw new Error(handleError.value);
@@ -280,15 +280,9 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
       throw new Error('Failed to create MeWe post');
     }
 
-    let postId = '';
-    try {
-      const responseData = await postResponse.json();
-      postId = responseData.postId || responseData.id || makeId(12);
-    } catch {
-      postId = makeId(12);
-    }
+    const postId = makeId(12);
 
-    const releaseURL = `${this.meweHost}/post/show/${postId}`;
+    const releaseURL = postType === 'timeline' ? `https://mewe.com/${integration.profile}/posts` : `https://mewe.com/group/${firstPost.settings.group}`;
 
     return [
       {

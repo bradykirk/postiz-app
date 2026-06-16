@@ -65,20 +65,6 @@
   <a href="https://apps.make.com/postiz">Make.com integration</a>
 </p>
 
-
-<br />
-
-## New - Postiz-as-a-service - Enterprise (Cloud)
-
-Integrate powerful social media scheduling capabilities into your SaaS. <br />Multi-tenant architecture designed for SaaS companies who want to offer social media management to their users.
-- **Skip App Approvals** - Use Postiz apps directly without going through lengthy social platform approval processes. Get the full power of Postiz instantly.
-- **Multi-Tenant Architecture** - each of your customers gets their own isolated environment with separate accounts, channels, and team management.
-- **Headless API** - Full REST API access to build your own frontend experience. Complete control over the user interface and branding.
-- **Full OAuth Support** - Connect all major social platforms including Facebook, Instagram, Twitter, LinkedIn, TikTok, and more.
-
-
-[Check it here](https://postiz.com/enterprise)
-
 <br /><br />
 
 ## 🔌 See the leading Postiz features
@@ -99,7 +85,7 @@ Integrate powerful social media scheduling capabilities into your SaaS. <br />Mu
 
 | Sponsor |                                  Logo                                   | Description     |
 |---------|:-----------------------------------------------------------------------:|-----------------|
-| [Hostinger](https://www.hostinger.com/?ref=postiz) | <img src=".github/sponsors/hostinger.png" alt="Hostinger" width="500"/> | Hostinger is on a mission to make online success possible for anyone – from developers to aspiring bloggers and business owners |
+| [Hostinger](https://www.hostinger.com/vps/docker/postiz?ref=postiz) | <img src=".github/sponsors/hostinger.png" alt="Hostinger" width="500"/> | Hostinger is on a mission to make online success possible for anyone – from developers to aspiring bloggers and business owners |
 | [Virlo](https://dev.virlo.ai/?ref=postiz) | <img src="https://github.com/user-attachments/assets/25182598-5344-45fc-b9cd-e4cfa16aabfd" alt="Virlo" width="500"/> | Virlo is the #1 social media trend spotting and all-in-one GTM tool for teams leveraging short-form video |
 
 
@@ -156,4 +142,7 @@ This repository's source code is available under the [AGPL-3.0 license](LICENSE)
 
 <p align="center">
   <a href="https://www.g2.com/products/postiz/take_survey" target="blank"><img alt="g2" src="https://github.com/user-attachments/assets/892cb74c-0b49-4589-b2f5-fbdbf7a98f66" /></a>
+</p>
+<p align="center">
+  <img src="https://github.com/snyk-labs/secure-developer-sample-repo/raw/main/badge_full.svg" alt="Secure Developer Badge Full" width="150">
 </p>

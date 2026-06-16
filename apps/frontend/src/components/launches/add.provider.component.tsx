@@ -86,7 +86,7 @@ export const AddProviderButton: FC<{
           viewBox="0 0 16 16"
           fill="none"
         >
-          <g clip-path="url(#clip0_2452_193804)">
+          <g clipPath="url(#clip0_2452_193804)">
             <path
               d="M6.6668 8.66599C6.9531 9.04875 7.31837 9.36545 7.73783 9.59462C8.1573 9.82379 8.62114 9.96007 9.0979 9.99422C9.57466 10.0284 10.0532 9.95957 10.501 9.79251C10.9489 9.62546 11.3555 9.36404 11.6935 9.02599L13.6935 7.02599C14.3007 6.39732 14.6366 5.55531 14.629 4.68132C14.6215 3.80733 14.2709 2.97129 13.6529 2.35326C13.0348 1.73524 12.1988 1.38467 11.3248 1.37708C10.4508 1.36948 9.60881 1.70547 8.98013 2.31266L7.83347 3.45266M9.33347 7.33266C9.04716 6.94991 8.68189 6.6332 8.26243 6.40403C7.84297 6.17486 7.37913 6.03858 6.90237 6.00444C6.4256 5.97029 5.94708 6.03908 5.49924 6.20614C5.0514 6.3732 4.64472 6.63461 4.3068 6.97266L2.3068 8.97266C1.69961 9.60133 1.36363 10.4433 1.37122 11.3173C1.37881 12.1913 1.72938 13.0274 2.3474 13.6454C2.96543 14.2634 3.80147 14.614 4.67546 14.6216C5.54945 14.6292 6.39146 14.2932 7.02013 13.686L8.16013 12.546"
               stroke="currentColor"
@@ -325,7 +325,8 @@ const ChromeExtensionWarning: FC<{
           We will store your cookies securely to facilitate the connection.
         </li>
         <li>
-          Postiz does not take responsibility for any issues arising or account termination due to the use of this method.
+          Postiz does not take responsibility for any issues arising or account
+          termination due to the use of this method.
         </li>
       </ul>
       <div className="flex gap-[10px] mt-[8px]">
@@ -380,8 +381,9 @@ export const AddProviderComponent: FC<{
   invite: boolean;
   update?: () => void;
   onboarding?: boolean;
+  isMobile?: boolean;
 }> = (props) => {
-  const { update, social, article, onboarding } = props;
+  const { update, social, article, onboarding, isMobile } = props;
   const { isGeneral, extensionId } = useVariables();
   const toaster = useToaster();
   const router = useRouter();
@@ -418,26 +420,38 @@ export const AddProviderComponent: FC<{
           modal.openModal({
             title: `Add ${capitalize(identifier)}`,
             withCloseButton: true,
+            ...(isMobile ? { removeLayout: true, fullScreen: true } : {}),
             classNames: {
               modal: 'bg-transparent text-textColor',
             },
             children: (
-              <Web3Providers
-                onComplete={(code, newState) => {
-                  window.location.href = `/integrations/social/${identifier}?code=${code}&state=${newState}${
-                    onboarding ? '&onboarding=true' : ''
-                  }`;
-                }}
-                nonce={url}
-              />
+              <div
+                {...(isMobile ? { className: 'h-full bg-black p-[20px]' } : {})}
+              >
+                <Web3Providers
+                  onComplete={(code, newState) => {
+                    window.location.href = `/integrations/social/${identifier}?code=${code}&state=${newState}${
+                      onboarding ? '&onboarding=true' : ''
+                    }`;
+                  }}
+                  nonce={url}
+                />
+              </div>
             ),
           });
           return;
         };
         const gotoIntegration = async (externalUrl?: string) => {
+          // Mobile WebView: reuse the existing `externalUrl` param to
+          // carry the `postiz://` deep link so the backend redirects
+          // back to the iOS/Android app after OAuth completes, instead
+          // of the default web redirect.
           const params = [
-            externalUrl ? `externalUrl=${externalUrl}` : '',
+            `externalUrl=${encodeURIComponent(externalUrl)}`,
             onboardingParam,
+            isMobile
+              ? `redirectUrl=${encodeURIComponent('postiz://integrations')}`
+              : '',
           ]
             .filter(Boolean)
             .join('&');
@@ -464,6 +478,23 @@ export const AddProviderComponent: FC<{
             );
             modal.closeAll();
             copy(url);
+            return;
+          }
+
+          if (isMobile) {
+            // In the mobile WebView the OAuth provider (Google, Facebook,
+            // etc.) typically refuses in-WebView sign-in. Post the URL
+            // out to React Native so it can open the system browser;
+            // `window.open`/`location.href` aren't reliable here because
+            // RN WebView doesn't always route them through the native
+            // navigation intercept. The backend redirects back to the
+            // app via `postiz://` once OAuth completes.
+            const rn = (window as any).ReactNativeWebView;
+            if (rn && typeof rn.postMessage === 'function') {
+              rn.postMessage(JSON.stringify({ type: 'open-external', url }));
+              return;
+            }
+            window.open(url, '_blank');
             return;
           }
 
@@ -577,6 +608,7 @@ export const AddProviderComponent: FC<{
           modal.openModal({
             title: 'URL',
             withCloseButton: true,
+            ...(isMobile ? { removeLayout: true, fullScreen: true } : {}),
             classNames: {
               modal: 'bg-transparent text-textColor',
             },
@@ -588,16 +620,21 @@ export const AddProviderComponent: FC<{
           modal.openModal({
             title: t('add_provider_title', 'Add Provider'),
             withCloseButton: true,
+            ...(isMobile ? { removeLayout: true, fullScreen: true } : {}),
             classNames: {
               modal: 'bg-transparent text-textColor',
             },
             children: (
-              <CustomVariables
-                identifier={identifier}
-                gotoUrl={(url: string) => router.push(url)}
-                variables={customFields}
-                onboarding={onboarding}
-              />
+              <div
+                {...(isMobile ? { className: 'h-full bg-black p-[20px]' } : {})}
+              >
+                <CustomVariables
+                  identifier={identifier}
+                  gotoUrl={(url: string) => router.push(url)}
+                  variables={customFields}
+                  onboarding={onboarding}
+                />
+              </div>
             ),
           });
           return;
@@ -614,8 +651,10 @@ export const AddProviderComponent: FC<{
       <div className="flex flex-col">
         <div
           className={clsx(
-            'grid grid-cols-5 gap-[10px] justify-items-center justify-center',
-            onboarding ? 'grid-cols-9' : 'grid-cols-5'
+            isMobile && 'gap-[20px] flex flex-col',
+            !isMobile &&
+              'grid grid-cols-5 gap-[10px] justify-items-center justify-center',
+            isMobile ? {} : onboarding ? 'grid-cols-9' : 'grid-cols-5'
           )}
         >
           {social
@@ -648,9 +687,12 @@ export const AddProviderComponent: FC<{
                       'data-tooltip-content': item.toolTip,
                     }
                   : {})}
-                className={
-                  'w-full h-[100px] text-[14px] p-[10px] rounded-[8px] bg-newTableHeader text-textColor relative justify-center items-center flex flex-col gap-[10px] cursor-pointer'
-                }
+                className={clsx(
+                  isMobile
+                    ? 'flex-row h-[72px] p-[16px]'
+                    : 'flex-col p-[10px] h-[100px] justify-center',
+                  'w-full text-[14px] rounded-[8px] bg-newTableHeader text-textColor relative items-center flex gap-[10px] cursor-pointer'
+                )}
               >
                 <div>
                   {item.identifier === 'youtube' ? (
@@ -666,9 +708,14 @@ export const AddProviderComponent: FC<{
                     />
                   )}
                 </div>
-                <div className="whitespace-pre-wrap text-center">
+                <div
+                  className={clsx(
+                    isMobile ? '' : 'whitespace-pre-wrap',
+                    'text-center'
+                  )}
+                >
                   {item.name}
-                  {!!item.toolTip && (
+                  {!!item.toolTip && !isMobile && (
                     <svg
                       width="15"
                       height="15"
