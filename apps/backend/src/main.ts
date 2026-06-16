@@ -37,6 +37,7 @@ async function start() {
         'reload',
         'onboarding',
         'activate',
+        'logout',
         'x-copilotkit-runtime-client-gql-version',
         ...(process.env.NOT_SECURED ? ['auth', 'showorg', 'impersonate'] : []),
       ],
