@@ -123,6 +123,15 @@ export abstract class SocialAbstract {
       value = await func();
     } catch (err) {
       const handle = this.handleErrors(safeStringify(err), 200);
+      // When the provider has no mapping for this error it surfaces to the user
+      // as a generic "Unknown Error". Log the raw cause so it can be diagnosed
+      // (and, if common, added to handleErrors) instead of being masked.
+      if (!handle) {
+        console.error(
+          `[${this.identifier}] unmapped provider error:`,
+          safeStringify(err)
+        );
+      }
       value = { err: true, value: 'Unknown Error', ...(handle || {}) };
       globalErr = err;
     }
