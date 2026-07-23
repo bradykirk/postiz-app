@@ -117,6 +117,20 @@ services:
     networks:
       - postiz-network
       - temporal-network
+    # Probes the orchestrator's Temporal health endpoint (apps/orchestrator/health.controller.ts).
+    # NOTE: this only proves the process can REACH Temporal — it does NOT prove the worker is
+    # actually polling jobs. The idle-worker case (posts stuck in QUEUE while Temporal is reachable)
+    # is caught by scripts/orchestrator-watchdog.sh instead. On plain docker-compose an unhealthy
+    # status does NOT auto-restart; it only sets the container's health state. Coolify (and an
+    # autoheal sidecar) act on that state and will restart. Uses node because curl/wget may be absent.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "require('http').get('http://127.0.0.1:'+(process.env.ORCHESTRATOR_PORT||3002)+'/health/status',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     depends_on:
       postiz-postgres:
         condition: service_healthy
