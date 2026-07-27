@@ -305,16 +305,21 @@ git commit -m "feat(buffer): add BufferDto and register provider settings"
 
 ---
 
-### Task 3: Buffer provider — connect flow
+### Task 3: Buffer provider — connect flow and post flow
+
+> Tasks 3 and 4 were merged before execution. Splitting them would have left a
+> `post()` stub that throws in the reviewed state of Task 3, which any reviewer
+> would correctly flag as a defect. Implement both halves in one pass and commit
+> them separately (Steps 3 and 7).
 
 **Files:**
 - Create: `libraries/nestjs-libraries/src/integrations/social/buffer.provider.ts`
 
 **Interfaces:**
 - Consumes: `BufferClient`, `BufferChannel`, `BufferApiError` from Task 1; `BufferDto` from Task 2.
-- Produces: `BufferProvider` class implementing `SocialProvider`, with `identifier = 'buffer'`. Task 4 adds `post()` to this same class. Task 5 imports the class.
+- Produces: `BufferProvider` class implementing `SocialProvider`, with `identifier = 'buffer'`, including a working `post()`. Task 5 imports the class.
 
-- [ ] **Step 1: Create the provider with the connect flow only**
+- [ ] **Step 1: Create the provider with the connect flow**
 
 The access token is a composite `"<apiKey>:<channelId>"`, mirroring how `x.provider.ts:349` packs `accessToken + ':' + accessSecret`. This keeps everything inside the existing `Integration` row with no schema migration.
 
@@ -457,14 +462,7 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
     return true;
   }
 
-  async post(
-    id: string,
-    accessToken: string,
-    postDetails: PostDetails<BufferDto>[],
-    integration: Integration
-  ): Promise<PostResponse[]> {
-    throw new Error('Implemented in Task 4');
-  }
+  // post() is added in Step 4 below. Do not commit the class without it.
 }
 ```
 
@@ -473,25 +471,14 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
 Run: `pnpm run build:backend`
 Expected: build succeeds.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commit the connect flow**
 
 ```bash
 git add libraries/nestjs-libraries/src/integrations/social/buffer.provider.ts
 git commit -m "feat(buffer): add provider connect flow with channel resolution"
 ```
 
----
-
-### Task 4: Buffer provider — post flow
-
-**Files:**
-- Modify: `libraries/nestjs-libraries/src/integrations/social/buffer.provider.ts` (replace the `post()` stub from Task 3)
-
-**Interfaces:**
-- Consumes: `BufferClient.getChannel`, `.getDailyPostingLimit`, `.createPost` from Task 1; `splitToken()` from Task 3.
-- Produces: working `post()` returning `PostResponse[]`.
-
-- [ ] **Step 1: Add media mapping and the tweet-id parser**
+- [ ] **Step 4: Add media mapping and the tweet-id parser**
 
 Add these protected methods to `BufferProvider`. Postiz's `MediaContent.alt` is optional, but Buffer silently drops images without `altText`, so a fallback is mandatory rather than cosmetic.
 
@@ -516,7 +503,7 @@ Add these protected methods to `BufferProvider`. Postiz's `MediaContent.alt` is 
   }
 ```
 
-- [ ] **Step 2: Replace the `post()` stub**
+- [ ] **Step 5: Add the `post()` method**
 
 ```typescript
   async post(
@@ -591,12 +578,12 @@ Add these protected methods to `BufferProvider`. Postiz's `MediaContent.alt` is 
   }
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [ ] **Step 6: Verify it compiles**
 
 Run: `pnpm run build:backend`
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 7: Commit the post flow**
 
 ```bash
 git add libraries/nestjs-libraries/src/integrations/social/buffer.provider.ts
@@ -605,13 +592,13 @@ git commit -m "feat(buffer): implement post flow with identity assert and thread
 
 ---
 
-### Task 5: Register the provider in the backend
+### Task 4: Register the provider in the backend
 
 **Files:**
 - Modify: `libraries/nestjs-libraries/src/integrations/integration.manager.ts:38,40+`
 
 **Interfaces:**
-- Consumes: `BufferProvider` from Tasks 3–4.
+- Consumes: `BufferProvider` from Task 3.
 - Produces: `'buffer'` available in `socialIntegrationList`.
 
 - [ ] **Step 1: Import and register**
@@ -642,7 +629,7 @@ git commit -m "feat(buffer): register Buffer provider in integration manager"
 
 ---
 
-### Task 6: Frontend settings component and registration
+### Task 5: Frontend settings component and registration
 
 **Files:**
 - Create: `apps/frontend/src/components/new-launch/providers/buffer/buffer.provider.tsx`
@@ -744,7 +731,7 @@ git commit -m "feat(buffer): add frontend settings component and registration"
 
 ---
 
-### Task 7: Check in the verification probe
+### Task 6: Check in the verification probe
 
 **Files:**
 - Create: `scripts/buffer-probe.mjs`
@@ -795,12 +782,12 @@ git commit -m "chore(buffer): check in verification probe script"
 
 ---
 
-### Task 8: End-to-end verification through Postiz
+### Task 7: End-to-end verification through Postiz
 
 **Files:** none — this task is verification only.
 
 **Interfaces:**
-- Consumes: everything from Tasks 1–7.
+- Consumes: everything from Tasks 1–6.
 
 - [ ] **Step 1: Start the stack**
 
