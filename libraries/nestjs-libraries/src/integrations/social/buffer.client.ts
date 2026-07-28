@@ -1,7 +1,17 @@
 // libraries/nestjs-libraries/src/integrations/social/buffer.client.ts
 
+/**
+ * `retryable` distinguishes transient failures (network error, 429, 5xx) — which the
+ * Temporal retry loop should keep retrying — from terminal ones, which buffer.provider.ts
+ * converts into non-retryable ApplicationFailure subclasses. `status` carries the HTTP
+ * status so the provider can map 401/403 to a re-authentication failure specifically.
+ */
 export class BufferApiError extends Error {
-  constructor(message: string, public readonly retryable = false) {
+  constructor(
+    message: string,
+    public readonly retryable = false,
+    public readonly status?: number
+  ) {
     super(message);
     this.name = 'BufferApiError';
   }
@@ -19,6 +29,13 @@ export type BufferChannel = {
   isLocked: boolean;
 };
 
+export type BufferPostAsset = {
+  id: string;
+  type: string;
+  mimeType: string | null;
+  source: string | null;
+};
+
 export type BufferPost = {
   id: string;
   text: string;
@@ -26,6 +43,11 @@ export type BufferPost = {
   externalLink: string | null;
   sentAt: string | null;
   error: { __typename: string } | null;
+  // Buffer silently drops an image whose metadata.altText is missing, returning
+  // assets: []. Selecting the field makes that observable at runtime instead of
+  // invisible. Deliberately NOT asserted on in post(): a throw there would be
+  // retried by the workflow and could publish the post repeatedly.
+  assets: BufferPostAsset[] | null;
 };
 
 export type BufferDailyLimit = {
@@ -69,6 +91,7 @@ const CHANNEL_FIELDS = `
 
 const POST_FIELDS = `
   id text status externalLink sentAt error { __typename }
+  assets { id type mimeType source }
 `;
 
 export class BufferClient {
@@ -100,16 +123,27 @@ export class BufferClient {
 
     const json = (await res.json().catch(() => null)) as any;
     if (!json) {
-      throw new BufferApiError(`Buffer returned HTTP ${res.status} with an unreadable body`);
+      throw new BufferApiError(
+        `Buffer returned HTTP ${res.status} with an unreadable body`,
+        res.status >= 500,
+        res.status
+      );
     }
     if (json.errors?.length) {
-      throw new BufferApiError(json.errors.map((e: any) => e.message).join('; '));
+      // An auth failure can surface as errors[] with a 200/401 status alike, so keep
+      // the status attached for the provider's 401/403 mapping.
+      throw new BufferApiError(
+        json.errors.map((e: any) => e.message).join('; '),
+        res.status >= 500,
+        res.status
+      );
     }
     if (!res.ok) {
       const bodyText = json.message ?? JSON.stringify(json);
       throw new BufferApiError(
         `Buffer returned HTTP ${res.status}: ${bodyText}`,
-        res.status >= 500
+        res.status >= 500,
+        res.status
       );
     }
     return json.data as T;
