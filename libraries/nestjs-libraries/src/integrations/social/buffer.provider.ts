@@ -132,9 +132,97 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
     }
   }
 
-  async checkValidity(): Promise<string | true> {
+  override async checkValidity(): Promise<string | true> {
     return true;
   }
 
-  // post() is added in Step 4 below. Do not commit the class without it.
+  /** Buffer requires altText; without it the image is silently discarded. */
+  protected buildAssets(media: PostDetails['media']) {
+    return (media || [])
+      .filter((m) => m.type === 'image')
+      .map((m) => ({
+        image: {
+          url: m.path,
+          ...(m.thumbnail ? { thumbnailUrl: m.thumbnail } : {}),
+          metadata: { altText: m.alt?.trim() || 'Image' },
+        },
+      }));
+  }
+
+  /** externalLink looks like https://twitter.com/<handle>/status/<id> */
+  protected parseTweetId(externalLink: string | null): string {
+    const match = (externalLink || '').match(/status\/(\d+)/);
+    return match?.[1] || '';
+  }
+
+  async post(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails<BufferDto>[],
+    integration: Integration
+  ): Promise<PostResponse[]> {
+    const { apiKey, channelId } = this.splitToken(accessToken);
+    const client = new BufferClient(apiKey);
+    const [firstPost, ...rest] = postDetails;
+
+    // Guard against the channel now pointing at a different X account.
+    const channel = await client.getChannel(channelId);
+    if (!channel) {
+      throw new BufferApiError(`Buffer channel ${channelId} no longer exists`);
+    }
+    if (channel.isDisconnected || channel.isLocked) {
+      throw new BufferApiError(
+        `Buffer channel @${channel.name} is ${channel.isDisconnected ? 'disconnected' : 'locked'}`
+      );
+    }
+    if (channel.serviceId !== integration.internalId) {
+      throw new BufferApiError(
+        `Buffer channel @${channel.name} resolves to X account ${channel.serviceId}, ` +
+          `but this Postiz integration is bound to ${integration.internalId}. Refusing to post.`
+      );
+    }
+
+    // Fail fast rather than mid-publish when the 50/day cap is reached.
+    const limit = await client.getDailyPostingLimit(channelId, new Date().toISOString());
+    if (limit?.isAtLimit) {
+      throw new BufferApiError(
+        `Daily posting limit reached for @${channel.name} (${limit.sent}/${limit.limit})`
+      );
+    }
+
+    // Postiz models a thread as multiple PostDetails; Buffer takes it in one call.
+    const thread = rest.map((p) => ({ text: p.message }));
+
+    const post = await client.createPost({
+      text: firstPost.message,
+      channelId,
+      schedulingType: 'automatic',
+      mode: 'shareNow',
+      source: 'postiz',
+      assets: this.buildAssets(firstPost.media),
+      metadata: {
+        twitter: {
+          ...(thread.length ? { thread } : {}),
+          ...(firstPost.settings?.made_with_ai ? { isAiGenerated: true } : {}),
+        },
+      },
+    });
+
+    if (post.status === 'error') {
+      throw new BufferApiError(`Buffer failed to publish post ${post.id}`);
+    }
+
+    // externalLink is returned synchronously on shareNow (verified), so the fallback is
+    // defensive only. Integration.profile is nullable, so prefer the channel's own link
+    // over interpolating it into a URL that would read ".../undefined/status/".
+    const releaseURL = post.externalLink || channel.externalLink || '';
+
+    // Every PostDetails must be answered, or Postiz will treat the rest as unpublished.
+    return postDetails.map((p) => ({
+      id: p.id,
+      postId: this.parseTweetId(post.externalLink),
+      releaseURL,
+      status: 'posted',
+    }));
+  }
 }
