@@ -62,8 +62,19 @@ existing `PostResponse` contract is satisfied exactly rather than degraded.
 | `name` | `displayName` | `BradyKirkT` |
 | `picture` | `avatar` | `pbs.twimg.com/...` |
 
-**Threads work natively.** `metadata.twitter.thread` accepts an ordered list; read back as
-`threadCount: 2` with links intact in each item.
+**Threads: Buffer supports them, but Postiz cannot reach them.** `metadata.twitter.thread`
+accepts an ordered list and reads back as `threadCount: 2` with links intact — the Buffer
+side works. It is unusable from Postiz. `post.workflow.v1.0.5.ts:152-158` truncates a
+multi-part post to `[postsListBefore[0]]` unless the provider implements `comment()`
+(`isCommentable` = `!!getIntegration.comment`, `post.activity.ts:155-161`), so `post()` is
+never handed more than one `PostDetails`. Implementing `comment()` does not rescue it:
+Buffer's `CreatePostInput` has no reply-to-tweet field, so the incremental comment model
+cannot be satisfied either. This is an architectural mismatch between Buffer's one-shot
+thread API and Postiz's incremental comment model.
+
+**Consequence:** the provider rejects threads in `checkValidity` so the failure is visible
+at compose time rather than silently publishing only the first tweet. Threads remain
+available on the native X provider, which implements `comment()` (`x.provider.ts:582`).
 
 **Media is URL-ingested server-side.** `AssetInput.image.url` — Buffer fetches the image
 itself. Verified against 4 hosts including a 302 redirect. No binary upload, no chunked
@@ -141,10 +152,15 @@ Channels cannot be connected via API, so the UI must tell the user to link X ins
    `postId` = tweet ID parsed from `externalLink`, `releaseURL` = `externalLink`,
    `status: 'posted'`.
 
-Threads map onto `metadata.twitter.thread` in a single `createPost`, replacing the
-reply-chaining in `comment()` (`x.provider.ts:584-641`).
+Threads are rejected, not translated — see the threads finding above. `checkValidity`
+returns an error string when it receives more than one post, and the provider declares
+no `comment()` method. The frontend additionally passes `comments: false`, though note
+that flag only takes effect once the user opens the channel's own composer tab; the
+`checkValidity` rejection is the guard that actually holds.
 
-Media maps onto `assets[].image` with `url`, `thumbnailUrl`, and a **mandatory**
+Media maps onto `assets[].image` with `url` (NOT `path` — on local-storage installs
+`posts.service.ts:371` sets `path` to a filesystem path while the fetchable HTTP URL
+lives on `url`, and Buffer fetches assets server-side), `thumbnailUrl`, and a **mandatory**
 `metadata.altText`.
 
 ### Error handling
@@ -182,17 +198,28 @@ preserving post history and calendar links.
 
 | Risk | Mitigation |
 | --- | --- |
-| Buffer ToS position on driving the API from a self-hosted scheduler is unread | Read the ToS or email Buffer support **before** implementation |
-| Silent image drop when `altText` omitted | Provider always sends it; cover with a test asserting `assets.length` on the returned post |
+| **Buffer ToS position on driving the API from a self-hosted scheduler is unread** | **Unresolved. Read the ToS or email Buffer support before this ships.** The only remaining blocker |
+| Silent image drop when `altText` omitted | `buildAssets` always sends `m.alt?.trim() \|\| 'Image'`, covering undefined/null/empty/whitespace |
+| Threads silently publishing only tweet 1 | Rejected in `checkValidity`; see the threads finding |
+| "Add post" still reachable in the default global composer | Parked. Pre-existing and systemic — 7 shipped providers (youtube, tiktok, pinterest, mewe, kick, twitch, instagram) share it. `checkValidity` catches it and fails visibly with no data loss. Fixing means editing `high.order.provider.tsx`, shared by every provider |
 | Buffer becomes a single point of failure for X posting | Keep `x.provider.ts` intact as a fallback path |
 | Buffer plan limits on channel count | Verify plan covers the required channels |
-| 50 posts/day cap | 3x headroom at target volume; pre-flight check fails fast |
+| 50 posts/day cap | 3x headroom at target volume; `dailyPostingLimits` pre-flight fails fast |
 
-## Test plan
+## Verification
 
-- Unit: token composition/splitting, channel resolution incl. ambiguous-handle failure,
-  response → `PostResponse` mapping, thread and asset input construction.
-- Unit: asserts that every image asset carries `altText` (guards the silent-drop bug).
-- Integration against the live API using the probe key: connect, draft with link,
-  draft thread + image, identity-mismatch refusal.
-- One live `shareNow` publish confirming `externalLink` before cutover.
+This repo has no test framework — `pnpm test` runs nothing, because no Nx project defines a
+jest config. Verification is therefore:
+
+- Compile: `pnpm run build:backend` and `pnpm run build:frontend`. Note that the backend
+  build only typechecks provider files once they are imported by `integration.manager.ts`;
+  before that, use `cd libraries/nestjs-libraries && npx tsc -p tsconfig.lib.json --noEmit`
+  (which reports pre-existing baseline errors in unrelated files).
+- `scripts/buffer-probe.mjs` against the live API: `channels`, then `draft` and `thread`
+  (neither publishes), then `publish` gated behind `--i-mean-it`.
+- Manual end-to-end through the Postiz UI: connect, link post, image post, thread
+  rejection, and an identity-mismatch refusal.
+
+**Connecting now requires the X handle.** Two X channels are connected to this Buffer
+account (`AdvisorTactical`, `BradyKirkT`), so `resolveChannel` takes its disambiguation
+path and rejects a blank handle.
