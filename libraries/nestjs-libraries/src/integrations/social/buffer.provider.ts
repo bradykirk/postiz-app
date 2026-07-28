@@ -141,7 +141,7 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
     posts: Array<{ path: string; thumbnail?: string }[]>
   ): Promise<string | true> {
     if (posts.length > 1) {
-      return 'Threads are not supported on X (via Buffer) — Buffer has no reply-to-tweet API. Use the native X channel to post a thread.';
+      return 'Threads are not supported on X (via Buffer). Remove the additional post part to continue, or use the native X channel to post a thread.';
     }
     return true;
   }
