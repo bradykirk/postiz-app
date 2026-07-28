@@ -59,6 +59,15 @@ Splitting client from provider matters: the client is the part that gets exercis
   `createPost(input: BufferCreatePostInput): Promise<BufferPost>`.
   Exported types `BufferChannel`, `BufferPost`, `BufferDailyLimit`, `BufferCreatePostInput`, and error class `BufferApiError`.
 
+> **Superseded during review (commit `9a3e6f91`).** The `gql()` body below has two
+> error-handling defects that review caught: a non-2xx response carrying valid JSON but
+> no `errors[]` fell through to `return json.data` (yielding `undefined`, so an invalid
+> API key surfaced as "Cannot read properties of undefined"), and a `fetch()` rejection
+> threw a raw native error so `.retryable` was never set for the commonest retryable
+> case. The shipped client wraps only the `fetch()` call in try/catch (re-throwing
+> `BufferApiError` with `retryable = true`) and rejects `!res.ok` with the status code
+> and body text, `retryable = status >= 500`. Read the committed file, not this block.
+
 - [ ] **Step 1: Create the client**
 
 ```typescript
