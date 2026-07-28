@@ -132,7 +132,17 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
     }
   }
 
-  override async checkValidity(): Promise<string | true> {
+  // Postiz truncates a multi-part post to a single PostDetails before post() is ever
+  // called, unless the provider implements comment() (see post.workflow.v1.0.5.ts /
+  // post.activity.ts's isCommentable check). Buffer's CreatePostInput has no reply-to-
+  // tweet field, so implementing comment() cannot make threads work either. Reject at
+  // compose time so the failure is visible instead of silently publishing only part 1.
+  override async checkValidity(
+    posts: Array<{ path: string; thumbnail?: string }[]>
+  ): Promise<string | true> {
+    if (posts.length > 1) {
+      return 'Threads are not supported on X (via Buffer) — Buffer has no reply-to-tweet API. Use the native X channel to post a thread.';
+    }
     return true;
   }
 
@@ -142,7 +152,13 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
       .filter((m) => m.type === 'image')
       .map((m) => ({
         image: {
-          url: m.path,
+          // `path` on MediaContent is the filesystem path on local-storage installs
+          // (posts.service.ts sets UPLOAD_DIRECTORY + name there); the public,
+          // server-fetchable URL lives on the runtime-only `url` field instead
+          // (not declared on MediaContent). Buffer fetches assets itself, so passing
+          // the filesystem path silently produces a text-only tweet. Prefer `url`,
+          // falling back to `path` for any caller that only populated that field.
+          url: (m as { url?: string; path: string }).url || m.path,
           ...(m.thumbnail ? { thumbnailUrl: m.thumbnail } : {}),
           metadata: { altText: m.alt?.trim() || 'Image' },
         },
@@ -163,7 +179,7 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
   ): Promise<PostResponse[]> {
     const { apiKey, channelId } = this.splitToken(accessToken);
     const client = new BufferClient(apiKey);
-    const [firstPost, ...rest] = postDetails;
+    const [firstPost] = postDetails;
 
     // Guard against the channel now pointing at a different X account.
     const channel = await client.getChannel(channelId);
@@ -190,9 +206,11 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
       );
     }
 
-    // Postiz models a thread as multiple PostDetails; Buffer takes it in one call.
-    const thread = rest.map((p) => ({ text: p.message }));
-
+    // No thread support here: Postiz already truncated postDetails to a single entry
+    // before post() was called (see the checkValidity() comment above), and Buffer's
+    // CreatePostInput has no reply-to-tweet field to chain further tweets onto even if
+    // it hadn't. Do not repopulate metadata.twitter.thread from postDetails — it is
+    // unreachable and was previously dead code.
     const post = await client.createPost({
       text: firstPost.message,
       channelId,
@@ -202,14 +220,19 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
       assets: this.buildAssets(firstPost.media),
       metadata: {
         twitter: {
-          ...(thread.length ? { thread } : {}),
           ...(firstPost.settings?.made_with_ai ? { isAiGenerated: true } : {}),
         },
       },
     });
 
-    if (post.status === 'error') {
-      throw new BufferApiError(`Buffer failed to publish post ${post.id}`);
+    // Allowlist rather than denylist: BufferPost.status also includes 'draft' and
+    // 'needs_approval' (e.g. Buffer org has post approval enabled). Reporting those as
+    // posted would tell Postiz — and the user — that a tweet went out when it didn't.
+    if (post.status !== 'sent' && post.status !== 'sending') {
+      throw new BufferApiError(
+        `Buffer did not publish post ${post.id}: status is "${post.status}"` +
+          (post.error?.__typename ? ` (${post.error.__typename})` : '')
+      );
     }
 
     // externalLink is returned synchronously on shareNow (verified), so the fallback is
