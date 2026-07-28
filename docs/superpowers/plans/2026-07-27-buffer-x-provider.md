@@ -805,12 +805,23 @@ Expected: backend, frontend, and orchestrator start.
 
 - [ ] **Step 2: Connect the channel**
 
-In the UI, add a channel, choose **X (via Buffer)**, paste the Buffer API key, leave the handle blank.
-Expected: the channel appears with the X handle as its name and the X avatar as its picture.
+**Prerequisite:** `FRONTEND_URL` must be publicly reachable. Buffer fetches media server-side
+from that origin, so on a private or LAN-only deployment every image silently disappears from
+every post. Check this before testing images.
+
+In the UI, add a channel, choose **X (via Buffer)**, paste the Buffer API key, and **fill in the
+X Handle** — it is required. Two X channels are connected to this Buffer account
+(`AdvisorTactical`, `BradyKirkT`), so a blank handle is rejected by `resolveChannel`.
+
+Expected: a **new** channel appears with the X handle as its name and the X avatar as its
+picture, alongside — not replacing — the existing native X channel. If the native X channel
+disappears or changes provider, stop: the `buffer:` id namespacing has regressed.
 
 - [ ] **Step 3: Verify the identity binding**
 
-Query the integration row and confirm `internalId` equals the X user id (`325272494` for `@BradyKirkT`) — the same value the native X provider would have stored.
+Query the integration row and confirm `internalId` is **`buffer:325272494`** for `@BradyKirkT` —
+namespaced, so it occupies a different row from the native X channel's bare `325272494`. A bare
+value here means the namespacing regressed and connecting would have overwritten the X channel.
 
 - [ ] **Step 4: Schedule a text-plus-link post**
 
@@ -822,15 +833,31 @@ Expected: post state becomes published, and the calendar's release link opens th
 Schedule a post with one image attached.
 Expected: the published tweet shows the image. **If the image is missing, `altText` was dropped somewhere in `buildAssets` — that is the silent-failure mode this provider is built to avoid.**
 
-- [ ] **Step 6: Schedule a thread**
+- [ ] **Step 6: Confirm threads are rejected**
 
-Schedule a post with two continuation posts.
-Expected: X shows a three-tweet thread.
+Threads do NOT work through Buffer — Postiz truncates multi-part posts before the provider is
+called, and Buffer has no reply-to-tweet API. Compose a post, click "Add post", add a second
+part, and save.
+Expected: a visible validation error — "Threads are not supported on X (via Buffer). Remove the
+additional post part to continue, or use the native X channel to post a thread." **Nothing should
+publish.** A partially-published thread here is the exact failure this provider was rebuilt to prevent.
 
-- [ ] **Step 7: Verify the identity guard**
+- [ ] **Step 7: Confirm video is rejected**
+
+Attach an `.mp4` and save.
+Expected: a visible validation error saying video is not supported on this channel.
+
+- [ ] **Step 8: Verify the identity guard**
 
 Temporarily edit the integration's `internalId` to a wrong value and attempt a post.
-Expected: publishing fails with "Refusing to post" and nothing reaches X. Restore the correct value afterwards.
+Expected: publishing fails, nothing reaches X, and the failure surfaces as an in-app
+notification rather than silently. Restore the correct value afterwards.
+
+- [ ] **Step 9: Verify a failure notifies you**
+
+Revoke or corrupt the Buffer API key on the integration and attempt a post.
+Expected: exactly ONE publish attempt, an in-app error notification, and no duplicate tweets.
+Multiple attempts mean the non-retryable `ApplicationFailure` wrapping regressed.
 
 - [ ] **Step 8: Commit any fixes**
 
