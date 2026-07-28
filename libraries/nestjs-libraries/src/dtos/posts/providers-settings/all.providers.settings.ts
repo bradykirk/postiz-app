@@ -17,6 +17,7 @@ import { DevToSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers
 import { HashnodeSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/hashnode.settings.dto';
 import { WordpressDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/wordpress.dto';
 import { ListmonkDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/listmonk.dto';
+import { BufferDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/buffer.dto';
 import { GmbSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/gmb.settings.dto';
 import { FarcasterDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/farcaster.dto';
 import { FacebookDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/facebook.dto';
@@ -59,7 +60,8 @@ export type AllProvidersSettings =
   | ProviderExtension<'vk', None>
   | ProviderExtension<'skool', SkoolDto>
   | ProviderExtension<'mewe', MeweDto>
-  | ProviderExtension<'whop', WhopDto>;
+  | ProviderExtension<'whop', WhopDto>
+  | ProviderExtension<'buffer', BufferDto>;
 
 type None = NonNullable<unknown>;
 
@@ -98,6 +100,7 @@ export const allProviders = (setEmpty?: any) => {
     { value: SkoolDto, name: 'skool' },
     { value: WhopDto, name: 'whop' },
     { value: MeweDto, name: 'mewe' },
+    { value: BufferDto, name: 'buffer' },
   ].filter((f) => f.value);
 };
 
