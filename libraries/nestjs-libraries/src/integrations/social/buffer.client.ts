@@ -77,14 +77,22 @@ export class BufferClient {
   constructor(private readonly apiKey: string) {}
 
   private async gql<T>(query: string, variables: Record<string, any> = {}): Promise<T> {
-    const res = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+    } catch (err: any) {
+      throw new BufferApiError(
+        `Buffer request failed: ${err?.message ?? String(err)}`,
+        true
+      );
+    }
 
     if (res.status === 429) {
       throw new BufferApiError('Buffer rate limit exceeded', true);
@@ -96,6 +104,13 @@ export class BufferClient {
     }
     if (json.errors?.length) {
       throw new BufferApiError(json.errors.map((e: any) => e.message).join('; '));
+    }
+    if (!res.ok) {
+      const bodyText = json.message ?? JSON.stringify(json);
+      throw new BufferApiError(
+        `Buffer returned HTTP ${res.status}: ${bodyText}`,
+        res.status >= 500
+      );
     }
     return json.data as T;
   }
