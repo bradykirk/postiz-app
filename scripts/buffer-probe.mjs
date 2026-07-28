@@ -5,9 +5,16 @@
  *
  *   export BUFFER_API_KEY=...
  *   node scripts/buffer-probe.mjs channels
+ *   node scripts/buffer-probe.mjs preflight <channelId>  # publishes nothing
  *   node scripts/buffer-probe.mjs draft   <channelId>   # publishes nothing
  *   node scripts/buffer-probe.mjs thread  <channelId>   # publishes nothing
  *   node scripts/buffer-probe.mjs publish <channelId> --i-mean-it   # REAL TWEET
+ *
+ * `preflight` is the regression guard for buffer.provider.ts: it issues exactly the
+ * calls post() makes, in order — channel(input:{id}), dailyPostingLimits, then
+ * createPost with an image asset carrying metadata.altText and
+ * metadata.twitter.isAiGenerated — asserts each one, and deletes the draft it made.
+ * Run it after any change to buffer.client.ts or buffer.provider.ts.
  *
  * Known Buffer behaviour: ImageMetadataInput.altText is a required String!.
  * Omitting the metadata object makes Buffer silently discard the image and
@@ -55,6 +62,7 @@ const POST_FIELDS = `
   via
   metricsUpdatedAt
   error { __typename }
+  assets { id type mimeType source }
 `;
 
 const CREATE = `
@@ -96,6 +104,108 @@ async function channels() {
         `${c.isDisconnected ? ' [DISCONNECTED]' : ''}${c.isLocked ? ' [LOCKED]' : ''}${isX ? '  <-- X' : ''}`
     );
   }
+}
+
+// ----------------------------------------------------------------- preflight
+const DELETE = `
+  mutation Delete($input: DeletePostInput!) {
+    deletePost(input: $input) {
+      ... on DeletePostSuccess { id }
+      ... on VoidMutationError { message }
+    }
+  }`;
+
+let failures = 0;
+function assert(ok, label, detail = '') {
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failures++;
+}
+
+/**
+ * Exercises every call buffer.provider.ts#post() makes, with the same shapes.
+ * Creates one draft (nothing is published) and deletes it again.
+ */
+async function preflight(channelId) {
+  h('PREFLIGHT — the exact calls post() makes. Publishes nothing.');
+
+  // 1. channel(input: { id }) — the identity/connectivity guard.
+  console.log('\n1. channel(input: { id: ChannelId! })');
+  const c = await gql(
+    `query G($id: ChannelId!) {
+       channel(input: { id: $id }) {
+         id name service serviceId displayName avatar externalLink isDisconnected isLocked
+       }
+     }`,
+    { id: channelId }
+  );
+  const channel = c?.data?.channel;
+  assert(!!channel, 'channel resolves', channel ? `@${channel.name}` : 'null');
+  assert(!!channel?.serviceId, 'serviceId present', channel?.serviceId || '');
+  assert(channel?.isDisconnected === false, 'not disconnected');
+  assert(channel?.isLocked === false, 'not locked');
+
+  // 2. dailyPostingLimits — the 50/day fail-fast, with a full ISO timestamp.
+  console.log('\n2. dailyPostingLimits(input: { channelIds, date })');
+  const d = await gql(
+    `query D($input: DailyPostingLimitsInput!) {
+       dailyPostingLimits(input: $input) { channelId isAtLimit limit scheduled sent }
+     }`,
+    { input: { channelIds: [channelId], date: new Date().toISOString() } }
+  );
+  const limit = d?.data?.dailyPostingLimits?.[0];
+  assert(!!limit, 'limit row returned', limit ? JSON.stringify(limit) : 'none');
+  assert(typeof limit?.isAtLimit === 'boolean', 'isAtLimit is a boolean');
+  assert(typeof limit?.limit === 'number', 'limit is a number', String(limit?.limit));
+
+  // 3. createPost with an image asset — altText is REQUIRED; without it Buffer
+  //    silently drops the image and returns assets: []. saveToDraft so nothing sends.
+  console.log('\n3. createPost(assets + metadata.altText + metadata.twitter.isAiGenerated)');
+  const j = await gql(CREATE, {
+    input: {
+      text: `Buffer preflight ${new Date().toISOString()} https://example.com/probe`,
+      channelId,
+      schedulingType: 'automatic',
+      mode: 'addToQueue',
+      saveToDraft: true,
+      source: 'postiz-probe',
+      assets: [
+        {
+          image: {
+            url: 'https://picsum.photos/800/450',
+            thumbnailUrl: 'https://picsum.photos/200/113',
+            metadata: { altText: 'Preflight image' },
+          },
+        },
+      ],
+      metadata: { twitter: { isAiGenerated: true } },
+    },
+  });
+  const post = j?.data?.createPost?.post;
+  assert(!!post, 'createPost returned a post', j?.data?.createPost?.message || '');
+  assert(post?.status === 'draft', 'status is draft (nothing published)', post?.status || '');
+  assert(
+    (post?.assets || []).length === 1,
+    'assets.length === 1 (altText accepted, image NOT dropped)',
+    `got ${(post?.assets || []).length}`
+  );
+  assert(
+    (post?.text || '').includes('https://example.com/probe'),
+    'link survived intact'
+  );
+
+  // 4. Clean up — never leave drafts behind in the user's Buffer queue.
+  if (post?.id) {
+    console.log('\n4. deletePost (cleanup)');
+    const del = await gql(DELETE, { input: { id: post.id } });
+    assert(
+      del?.data?.deletePost?.id === post.id,
+      'draft deleted',
+      del?.data?.deletePost?.message || post.id
+    );
+  }
+
+  h(failures === 0 ? 'PREFLIGHT PASSED' : `PREFLIGHT FAILED — ${failures} assertion(s)`);
+  if (failures) process.exit(1);
 }
 
 // --------------------------------------------------------------------- draft
@@ -185,14 +295,14 @@ async function publish(channelId) {
 }
 
 const [, , cmd, channelId] = process.argv;
-const needsChannel = ['draft', 'thread', 'publish'];
+const needsChannel = ['preflight', 'draft', 'thread', 'publish'];
 if (needsChannel.includes(cmd) && !channelId) {
   console.error(`Usage: node buffer-probe.mjs ${cmd} <channelId>   (get it from \`channels\`)`);
   process.exit(1);
 }
-const run = { channels, draft, thread, publish }[cmd];
+const run = { channels, preflight, draft, thread, publish }[cmd];
 if (!run) {
-  console.error('Usage: node buffer-probe.mjs <channels|draft|thread|publish>');
+  console.error('Usage: node buffer-probe.mjs <channels|preflight|draft|thread|publish>');
   process.exit(1);
 }
 run(channelId).catch((e) => {
