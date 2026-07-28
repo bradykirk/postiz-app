@@ -16,7 +16,7 @@ const SettingsComponent = () => {
   return (
     <div className="flex flex-col gap-[16px]">
       <Checkbox
-        label={t('made_with_ai', 'Disclose AI-generated content')}
+        label={t('label_made_with_ai', 'Made with AI')}
         {...register('made_with_ai')}
       />
     </div>

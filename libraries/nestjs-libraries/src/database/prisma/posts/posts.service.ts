@@ -826,7 +826,7 @@ export class PostsService {
         }
 
         const maximumCharacters = provider.maxLength(additionalSettings);
-        const isX = integration.providerIdentifier === 'x';
+        const isX = ['x', 'buffer'].includes(integration.providerIdentifier);
 
         const emptyContent = (post.value || []).some((a) => {
           const strip = stripHtmlValidation('normal', a.content || '', true);
