@@ -37,6 +37,7 @@
 #   orchestrator-watchdog.sh            normal run
 #   orchestrator-watchdog.sh --check    detect + report, never restart
 #   orchestrator-watchdog.sh --reset    clear the restart budget/state
+#   orchestrator-watchdog.sh --test-alert   send one test alert and exit
 #
 # Config (env vars, all optional):
 #   POSTIZ_CONTAINER   App container (auto-detected by image name postiz-app)
@@ -48,6 +49,13 @@
 #   MAX_RESTARTS       Restarts allowed until the queue is healthy again (3)
 #   STATE_DIR          Where the budget is stored (/var/lib/postiz-watchdog)
 #   SLACK_WEBHOOK_URL  If set, alerts on restart and on giving up
+#   CLICKUP_API_TOKEN  If set together with CLICKUP_LIST_ID, every alert also
+#   CLICKUP_LIST_ID    creates a ClickUp task in that list (priority urgent),
+#   CLICKUP_ASSIGNEE_ID  assigned to this ClickUp user id when it is set
+#   WATCHDOG_ENV_FILE  Root-only file with KEY=VALUE lines for the alert
+#                      settings above (default /etc/postiz-watchdog.env).
+#                      Cron has no environment, so secrets live there, never
+#                      in this script or the repository.
 #   DRY_RUN=1          Same as --check
 
 set -euo pipefail
@@ -69,14 +77,69 @@ for n in "${STALE_MINUTES}" "${COOLDOWN_MINUTES}" "${MAX_RESTARTS}"; do
   fi
 done
 
-notify() {
-  [ -n "${SLACK_WEBHOOK_URL:-}" ] || return 0
-  command -v curl >/dev/null 2>&1 || return 0
-  # Messages are built by this script from numbers and container names only.
-  curl -sf -m 10 -X POST -H 'Content-type: application/json' \
-    --data "$(printf '{"text":"%s"}' "$1")" "${SLACK_WEBHOOK_URL}" >/dev/null \
-    || log "WARN: Slack notify failed."
+# Alert settings come from the environment or from WATCHDOG_ENV_FILE. The file
+# is parsed, not sourced: only the known keys are read and nothing in it runs.
+WATCHDOG_ENV_FILE="${WATCHDOG_ENV_FILE:-/etc/postiz-watchdog.env}"
+if [ -r "${WATCHDOG_ENV_FILE}" ]; then
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      SLACK_WEBHOOK_URL | CLICKUP_API_TOKEN | CLICKUP_LIST_ID | CLICKUP_ASSIGNEE_ID)
+        # the environment wins over the file
+        [ -n "${!key:-}" ] || printf -v "${key}" '%s' "${value}"
+        ;;
+    esac
+  done < "${WATCHDOG_ENV_FILE}"
+fi
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/}"
+  s="${s//$'\t'/ }"
+  printf '%s' "${s}"
 }
+
+# notify <title> [details]. Never fails the script: an alert that cannot be
+# sent is logged and the watchdog carries on.
+notify() {
+  local title="$1" details="${2:-}" payload status
+  command -v curl >/dev/null 2>&1 || { log "WARN: curl not found - no alert sent."; return 0; }
+
+  if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+    curl -sf -m 10 -X POST -H 'Content-type: application/json' \
+      --data "$(printf '{"text":"%s"}' "$(json_escape "${title} ${details}")")" \
+      "${SLACK_WEBHOOK_URL}" >/dev/null || log "WARN: Slack notify failed."
+  fi
+
+  if [ -n "${CLICKUP_API_TOKEN:-}" ] && [ -n "${CLICKUP_LIST_ID:-}" ]; then
+    if ! [[ "${CLICKUP_LIST_ID}" =~ ^[0-9]+$ ]] || ! [[ "${CLICKUP_ASSIGNEE_ID:-0}" =~ ^[0-9]+$ ]]; then
+      log "WARN: CLICKUP_LIST_ID / CLICKUP_ASSIGNEE_ID must be numbers - no ClickUp alert sent."
+      return 0
+    fi
+    payload="$(printf '{"name":"%s","description":"%s","priority":1,"assignees":[%s]}' \
+      "$(json_escape "${title}")" \
+      "$(json_escape "${details}")" \
+      "${CLICKUP_ASSIGNEE_ID:-}")"
+    # The token goes in a header read from stdin (-H @-), so it never shows up
+    # in the process list.
+    status="$(printf 'Authorization: %s\n' "${CLICKUP_API_TOKEN}" \
+      | curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST \
+          -H @- -H 'Content-Type: application/json' --data "${payload}" \
+          "https://api.clickup.com/api/v2/list/${CLICKUP_LIST_ID}/task" || true)"
+    if [ "${status}" = "200" ]; then
+      log "ClickUp alert task created."
+    else
+      log "WARN: ClickUp alert failed (HTTP ${status:-none})."
+    fi
+  fi
+}
+
+if [ "${MODE}" = "--test-alert" ]; then
+  notify "Postiz watchdog: test alert" "This is a test from $(hostname). No action is needed. You can close this task."
+  exit 0
+fi
 
 # --- state --------------------------------------------------------------------
 mkdir -p "${STATE_DIR}"
@@ -167,7 +230,8 @@ give_up() {
   log "NOT RESTARTING: $1. Manual check needed. Stuck ids: $(printf '%s' "${IDS}" | tr '\n' ' ')"
   if [ "${DRY_RUN}" != "1" ] && [ ! -e "${STATE_DIR}/gave_up" ]; then
     : > "${STATE_DIR}/gave_up"
-    notify "Postiz watchdog gave up: ${STUCK} post(s) stuck in QUEUE on ${POSTIZ_CONTAINER} ($1). Manual check needed."
+    notify "Postiz watchdog gave up: ${STUCK} post(s) stuck in QUEUE" \
+      "Reason: $1. The watchdog will not restart ${POSTIZ_CONTAINER} again until the queue is healthy or an operator runs --reset. Manual check needed. Stuck post ids: $(printf '%s' "${IDS}" | tr '\n' ' ')"
   fi
   exit 0
 }
@@ -206,10 +270,12 @@ printf '%s\n' "${IDS}" > "${STATE_DIR}/ids"
 log "restarting container ${POSTIZ_CONTAINER} (restart $((RESTARTS + 1))/${MAX_RESTARTS})..."
 if docker restart "${POSTIZ_CONTAINER}" >/dev/null 2>&1; then
   log "container restarted"
-  notify "Postiz orchestrator stalled: ${STUCK} post(s) stuck in QUEUE. Restarted container ${POSTIZ_CONTAINER} (restart $((RESTARTS + 1))/${MAX_RESTARTS})."
+  notify "Postiz orchestrator stalled: container restarted ($((RESTARTS + 1))/${MAX_RESTARTS})" \
+    "${STUCK} post(s) were stuck in QUEUE more than ${STALE_MINUTES} minutes past their publish time. The watchdog restarted ${POSTIZ_CONTAINER}. Check that the posts publish. Stuck post ids: $(printf '%s' "${IDS}" | tr '\n' ' ')"
 else
   log "ERROR: docker restart ${POSTIZ_CONTAINER} failed."
-  notify "Postiz watchdog: docker restart ${POSTIZ_CONTAINER} FAILED with ${STUCK} post(s) stuck in QUEUE."
+  notify "Postiz watchdog: docker restart FAILED" \
+    "docker restart ${POSTIZ_CONTAINER} failed with ${STUCK} post(s) stuck in QUEUE. Manual check needed."
 fi
 
 exit 0
