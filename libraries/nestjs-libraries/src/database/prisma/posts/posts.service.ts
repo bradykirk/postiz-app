@@ -724,9 +724,14 @@ export class PostsService {
     }
 
     try {
-      await this._temporalService.client
-        .getRawClient()
-        ?.workflow.start('postWorkflowV105', {
+      const rawClient = this._temporalService.client.getRawClient();
+      if (!rawClient) {
+        // Do not skip silently: without a workflow the post stays in QUEUE
+        // forever.
+        throw new Error('Temporal client is not available');
+      }
+
+      await rawClient.workflow.start('postWorkflowV105', {
           workflowId: `post_${postId}`,
           taskQueue: 'main',
           workflowIdConflictPolicy: 'TERMINATE_EXISTING',
@@ -748,7 +753,15 @@ export class PostsService {
             },
           ]),
         });
-    } catch (err) {}
+    } catch (err) {
+      // Callers rely on this method not throwing, so keep that contract, but
+      // never hide the failure: the post now sits in QUEUE without a workflow.
+      console.error(
+        `startWorkflow: could not start the workflow for post ${postId} (org ${orgId})`,
+        err
+      );
+      Sentry.captureException(err);
+    }
   }
 
   /**
