@@ -37,3 +37,16 @@ export const textSlicer = (
 export const weightedLength = (text: string): number => {
   return twitter.parseTweet(text).weightedLength;
 };
+
+export const countLength = (integrationType: string, text: string): number => {
+  // buffer posts to X through Buffer, so X's weighted count applies there too
+  if (integrationType === 'x' || integrationType === 'buffer') {
+    return weightedLength(text);
+  }
+
+  if (integrationType === 'threads') {
+    return new TextEncoder().encode(text).length;
+  }
+
+  return text.length;
+};
