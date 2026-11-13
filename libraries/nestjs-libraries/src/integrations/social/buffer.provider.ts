@@ -5,12 +5,19 @@ import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { BadBody, RefreshToken, SocialAbstract } from '../social.abstract';
 import {
   AuthTokenDetails,
+  PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from './social.integrations.interface';
 import { BufferDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/buffer.dto';
 import { BufferApiError, BufferChannel, BufferClient } from './buffer.client';
+
+// Travels through the workflow history between postPending and checkPostStatus.
+type BufferPendingData = {
+  bufferPostId: string;
+  channelLink: string;
+};
 
 export class BufferProvider extends SocialAbstract implements SocialProvider {
   identifier = 'buffer';
@@ -239,11 +246,33 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
     return match?.[1] || '';
   }
 
+  // Only postWorkflowV105 and older call post(); they cannot resolve a `pending`
+  // response, so `sending` is still reported as posted there.
   async post(
     id: string,
     accessToken: string,
     postDetails: PostDetails<BufferDto>[],
     integration: Integration
+  ): Promise<PostResponse[]> {
+    return this.publish(accessToken, postDetails, integration, false);
+  }
+
+  // postWorkflowV106 and up: a `sending` post is returned as `pending` and the workflow
+  // confirms it through checkPostStatus before it marks the post as published.
+  async postPending(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails<BufferDto>[],
+    integration: Integration
+  ): Promise<PostResponse[]> {
+    return this.publish(accessToken, postDetails, integration, true);
+  }
+
+  protected async publish(
+    accessToken: string,
+    postDetails: PostDetails<BufferDto>[],
+    integration: Integration,
+    allowPending: boolean
   ): Promise<PostResponse[]> {
     const { apiKey, channelId } = this.splitToken(accessToken);
     const client = new BufferClient(apiKey);
@@ -319,7 +348,22 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
         assets: this.buildAssets(firstPost.media),
         ...(twitterMetadata ? { metadata: { twitter: twitterMetadata } } : {}),
       })
-      .catch((e) => this.failTerminal(e));
+      .catch((e) => {
+        // A network error or a 5xx on the mutation does not tell us whether Buffer
+        // accepted the post. The workflow repeats the publish on a plain error (up to 5
+        // passes), which could create the same tweet again, so stop here and tell the
+        // user to check the account. A 429 is a clear rejection and stays retryable.
+        if (e instanceof BufferApiError && e.retryable && e.status !== 429) {
+          throw new BadBody(
+            this.identifier,
+            '{}',
+            '{}',
+            `Buffer did not confirm the post (${e.message}). It may still be published. ` +
+              `Check @${channel.name} on X before you post again to avoid a duplicate.`
+          );
+        }
+        return this.failTerminal(e);
+      });
 
     // Allowlist rather than denylist: BufferPost.status also includes 'draft' and
     // 'needs_approval' (e.g. Buffer org has post approval enabled). Reporting those as
@@ -337,6 +381,22 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
       );
     }
 
+    // Buffer accepted the post but has not published it yet: let the workflow confirm it
+    // (checkPostStatus) instead of reporting a tweet that may still fail.
+    if (post.status === 'sending' && allowPending) {
+      const pendingData: BufferPendingData = {
+        bufferPostId: post.id,
+        channelLink: channel.externalLink || '',
+      };
+      return postDetails.map((p) => ({
+        id: p.id,
+        postId: '',
+        releaseURL: '',
+        status: 'pending',
+        pendingData,
+      }));
+    }
+
     // externalLink is returned synchronously on shareNow (verified), so the fallback is
     // defensive only. Integration.profile is nullable, so prefer the channel's own link
     // over interpolating it into a URL that would read ".../undefined/status/".
@@ -349,5 +409,70 @@ export class BufferProvider extends SocialAbstract implements SocialProvider {
       releaseURL,
       status: 'posted',
     }));
+  }
+
+  // Read-only. Only a status that Buffer itself reports as not published becomes BadBody
+  // (the workflow then marks the post as failed). Everything that leaves the outcome
+  // unknown - a failed lookup, a missing post, a status we do not know - is a plain Error:
+  // the workflow retries the check a few times and then warns the user that the post
+  // could not be confirmed, instead of claiming that it failed.
+  override async checkPostStatus(
+    accessToken: string,
+    pendingData: BufferPendingData,
+    integration: Integration
+  ): Promise<PendingCheckResponse> {
+    const { apiKey } = this.splitToken(accessToken);
+    const client = new BufferClient(apiKey);
+
+    const post = await client.getPost(pendingData.bufferPostId).catch((e) => {
+      if (
+        e instanceof BufferApiError &&
+        !e.retryable &&
+        (e.status === 401 || e.status === 403)
+      ) {
+        throw new RefreshToken(this.identifier, '{}', '{}', e.message);
+      }
+      throw e;
+    });
+
+    if (!post) {
+      throw new Error(
+        `Buffer returned no post for ${pendingData.bufferPostId}, cannot confirm it`
+      );
+    }
+
+    if (post.status === 'sent') {
+      return {
+        status: 'completed',
+        postId: this.parseTweetId(post.externalLink),
+        releaseURL: post.externalLink || pendingData.channelLink || '',
+      };
+    }
+
+    if (post.status === 'sending' || post.status === 'scheduled') {
+      return { status: 'pending', pendingData };
+    }
+
+    if (
+      post.status === 'error' ||
+      post.status === 'draft' ||
+      post.status === 'needs_approval'
+    ) {
+      throw new BadBody(
+        this.identifier,
+        '{}',
+        '{}',
+        `Buffer did not publish post ${post.id}: status is "${post.status}"` +
+          (post.error?.message
+            ? ` (${post.error.message})`
+            : post.error?.__typename
+            ? ` (${post.error.__typename})`
+            : '')
+      );
+    }
+
+    throw new Error(
+      `Buffer returned an unknown status "${post.status}" for post ${post.id}`
+    );
   }
 }

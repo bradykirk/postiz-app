@@ -42,7 +42,8 @@ export type BufferPost = {
   status: 'draft' | 'error' | 'needs_approval' | 'scheduled' | 'sending' | 'sent';
   externalLink: string | null;
   sentAt: string | null;
-  error: { __typename: string } | null;
+  // `message` is only selected by getPost (CHECK_FIELDS), never by createPost.
+  error: { __typename: string; message?: string } | null;
   // Buffer silently drops an image whose metadata.altText is missing, returning
   // assets: []. Selecting the field makes that observable at runtime instead of
   // invisible. Deliberately NOT asserted on in post(): a throw there would be
@@ -94,6 +95,13 @@ const POST_FIELDS = `
   assets { id type mimeType source }
 `;
 
+// Used by the read-only status check only. Kept apart from POST_FIELDS on purpose: a
+// field-name mistake here can fail a status lookup, but it can never fail the createPost
+// mutation.
+const CHECK_FIELDS = `
+  id status externalLink sentAt error { __typename message }
+`;
+
 export class BufferClient {
   private readonly endpoint = 'https://api.buffer.com';
 
@@ -118,7 +126,7 @@ export class BufferClient {
     }
 
     if (res.status === 429) {
-      throw new BufferApiError('Buffer rate limit exceeded', true);
+      throw new BufferApiError('Buffer rate limit exceeded', true, 429);
     }
 
     const json = (await res.json().catch(() => null)) as any;
@@ -186,6 +194,15 @@ export class BufferClient {
       { input: { channelIds: [channelId], date } }
     );
     return data?.dailyPostingLimits?.[0] ?? null;
+  }
+
+  /** Read-only lookup of one post, used to confirm that a `sending` post was published. */
+  async getPost(id: string): Promise<BufferPost | null> {
+    const data = await this.gql<{ post: BufferPost | null }>(
+      `query P($id: PostId!) { post(input: { id: $id }) { ${CHECK_FIELDS} } }`,
+      { id }
+    );
+    return data?.post ?? null;
   }
 
   async createPost(input: BufferCreatePostInput): Promise<BufferPost> {
